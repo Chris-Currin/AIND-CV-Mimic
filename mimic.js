@@ -20,8 +20,24 @@ detector.detectAllAppearance();
 // --- Utility values and functions ---
 
 // Unicode values for all emojis Affectiva can detect
-var emojis = [ 128528, 9786, 128515, 128524, 128527, 128521, 128535, 128539, 128540, 128542, 128545, 128563, 128561 ];
+// misc: 128524,128542 (disappointed)
+// neurtral, relaxed, smiley,  smirk, wink, kiss, stuckouttongue, stuckouttongue with wink, rage, flushed, scream
+var emojis = [ 128528, 9786, 128515, 128527, 128521, 128535, 128539, 128540, 128545, 128563, 128561 ];
 var emoji_names = ['disappointed','flushed','kissing','laughing','rage','relaxed','scream','smiley','smirk','stuckOutTongue','stuckOutTongueWinkingEye','wink'];
+var emoji_obj = {
+	'disappointed': 128542,
+	'flushed': 128563,
+	'kissing':128535,
+	'laughing':000000,
+	'rage':128545,
+	'relaxed':9786,
+	'scream':128561,
+	'smiley':128515,
+	'smirk':128527,
+	'stuckOutTongue':128539,
+	'stuckOutTongueWinkingEye': 128540,
+	'wink':128521
+};
 // Update target emoji being displayed by supplying a unicode value
 function setTargetEmoji(code) {
   $("#target").html("&#" + code + ";");
@@ -121,6 +137,11 @@ detector.addEventListener("onImageResultsSuccess", function(faces, image, timest
   log('#results', "Timestamp: " + timestamp.toFixed(2));
   log('#results', "Number of faces found: " + faces.length);
   if (faces.length > 0) {
+  	if(faces.length>1){
+  		p2=true;
+  	}else{
+  		p2=false;
+  	}
     if (game_state === 'ready'){
         drawReadyTimer(canvas, image);
     }
@@ -132,12 +153,15 @@ detector.addEventListener("onImageResultsSuccess", function(faces, image, timest
     log('#results', "Expressions: " + JSON.stringify(faces[0].expressions, function(key, val) {
       return val.toFixed ? Number(val.toFixed(0)) : val;
     }));
-    log('#results', "Emoji: " + faces[0].emojis.dominantEmoji);
+    log('#results', "Emoji: " + JSON.stringify(faces[0].emojis, function(key, val) {
+      return val.toFixed ? Number(val.toFixed(0)) : val;
+    }));
 
     // Call functions to draw feature points and dominant emoji (for the first face only)
-    drawFeaturePoints(canvas, image, faces[0]);
-    drawEmoji(canvas, image, faces[0]);
-
+    for (var f in faces){
+	    drawFeaturePoints(canvas, image, faces[f]);
+	    drawEmoji(canvas, image, faces[f]);
+	}
     // Call function to run the game
       if (game_state === 'running') {
           timeLeft = timePerRound - (new Date().getTime() - timeStart);
@@ -146,7 +170,9 @@ detector.addEventListener("onImageResultsSuccess", function(faces, image, timest
           }else{
             drawGameTimer(canvas,image,timeLeft);
           }
-          checkEmojiTarget(faces[0].emojis.dominantEmoji);
+          for (var f=1;f<=faces.length;f++){
+            checkEmojiTarget(faces[f].emojis.dominantEmoji,f);
+      	  }
       }
   }
 });
@@ -195,10 +221,10 @@ function drawEmoji(canvas, img, face) {
   var img_y = img.height/(keys.length-1);
   ctx.font = "normal 10px arial";
   keys.map(function(key,i) {
-    if (keys !== 'dominantEmoji') {
+    if (key !== 'dominantEmoji') {
       // ctx.fillText(String.fromCharCode(emojis[i]), 0, i*20);
-      ctx.fillText(key, 0, i*20);
-      ctx.fillText(face.emojis[key].toFixed(2)+"%", 40, i*30);
+      ctx.fillText(key, 0, i*20+10);
+      ctx.fillText((face.emojis[key]).toFixed(0)+"%", 100, i*20+10);
     }
   });
   // See: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/fillText
@@ -213,16 +239,20 @@ var ready_options=["Ready?",3,2,1,"GO!"];
 var ready_option = 0;
 var correct=0;
 var tries=0;
-
+var high_score=0;
+var p2 = false;
+var correct_p2=0;
 function intialiseDetector(){
   game_state = 'initialising';
 }
 
 function resetGame(){
     correct=0;
+    correct_p2=0;
     tries=0;
     game_state='ready';
     ready_option=0;
+    setScore(correct,high_score);
     setTimeout(changeReadyState,3000);
 }
 function startGame(){
@@ -232,11 +262,14 @@ function startGame(){
 }
 function endGame(){
     game_state = 'stopped';
+    if (correct>high_score){
+    	high_score = correct;
+    }
 }
 function changeReadyState(){
   ready_option +=1;
   if (ready_option<ready_options.length){
-      setTimeout(changeReadyState,1000);
+      setTimeout(changeReadyState,1300);
   }else{
       startGame();
   }
@@ -271,30 +304,30 @@ function playRound(){
 
 function nextEmoji(){
   var ran = parseInt(Math.random()*emojis.length);
+
   targetEmoji = emojis[ran];
   setTargetEmoji(targetEmoji);
 }
 
-function checkEmojiTarget(emoji_expression){
+function checkEmojiTarget(emoji_expression,player){
   if (toUnicode(emoji_expression) === targetEmoji){
-    correct+=1;
-    setScore(correct,correct+tries);
+    // comments disable 2 player functionality
+  	//if(player===1){
+	    correct+=1;
+	    if (correct>high_score){
+		    high_score = correct;
+	    }
+	// }else if(player===2){
+	// 	correct_p2+=1;
+	// 	 if (correct_p2>high_score){
+	// 	  high_score = correct_p2;
+	//    }
+	// }
+    console.log("player " + player + " gets the point!");
+    setScore(correct,high_score);
     nextEmoji();
   }else{
     tries+=1;
-    setScore(correct,correct+tries+1);
+    //setScore(correct,correct+tries+1);
   }
 }
-
-// NOTE:
-// - Remember to call your update function from the "onImageResultsSuccess" event handler above
-// - You can use setTargetEmoji() and setScore() functions to update the respective elements
-// - You will have to pass in emojis as unicode values, e.g. setTargetEmoji(128578) for a simple smiley
-// - Unicode values for all emojis recognized by Affectiva are provided above in the list 'emojis'
-// - To check for a match, you can convert the dominant emoji to unicode using the toUnicode() function
-
-// Optional:
-// - Define an initialization/reset function, and call it from the "onInitializeSuccess" event handler above
-// - Define a game reset function (same as init?), and call it from the onReset() function above
-
-// <your code here>
