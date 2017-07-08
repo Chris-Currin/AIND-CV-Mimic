@@ -170,8 +170,8 @@ detector.addEventListener("onImageResultsSuccess", function(faces, image, timest
           }else{
             drawGameTimer(canvas,image,timeLeft);
           }
-          for (var f=1;f<=faces.length;f++){
-            checkEmojiTarget(faces[f].emojis.dominantEmoji,f);
+          for (var f=0;f<faces.length;f++){
+            checkEmojiTarget(faces[f].emojis.dominantEmoji,f+1);
       	  }
       }
   }
