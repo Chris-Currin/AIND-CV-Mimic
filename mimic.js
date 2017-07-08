@@ -21,7 +21,7 @@ detector.detectAllAppearance();
 
 // Unicode values for all emojis Affectiva can detect
 var emojis = [ 128528, 9786, 128515, 128524, 128527, 128521, 128535, 128539, 128540, 128542, 128545, 128563, 128561 ];
-
+var emoji_names = ['disappointed','flushed','kissing','laughing','rage','relaxed','scream','smiley','smirk','stuckOutTongue','stuckOutTongueWinkingEye','wink'];
 // Update target emoji being displayed by supplying a unicode value
 function setTargetEmoji(code) {
   $("#target").html("&#" + code + ";");
@@ -51,6 +51,8 @@ function onStart() {
   if (detector && !detector.isRunning) {
     $("#logs").html("");  // clear out previous log
     detector.start();  // start detector
+    log('#logs', "Initialising detector...");
+    intialiseDetector();
   }
   log('#logs', "Start button pressed");
 }
@@ -58,6 +60,7 @@ function onStart() {
 // Stop button
 function onStop() {
   log('#logs', "Stop button pressed");
+  endGame();
   if (detector && detector.isRunning) {
     detector.removeEventListener();
     detector.stop();  // stop detector
@@ -73,8 +76,8 @@ function onReset() {
   $('#results').html("");  // clear out results
   $("#logs").html("");  // clear out previous log
 
-  // TODO(optional): You can restart the game as well
-  // <your code here>
+  // You can restart the game as well
+  resetGame();
 };
 
 // Add a callback to notify when camera access is allowed
@@ -101,8 +104,8 @@ detector.addEventListener("onInitializeSuccess", function() {
   $("#face_video_canvas").css("display", "block");
   $("#face_video").css("display", "none");
 
-  // TODO(optional): Call a function to initialize the game, if needed
-  // <your code here>
+  // Call a function to initialize the game
+  resetGame();
 });
 
 // Add a callback to receive the results from processing an image
@@ -118,6 +121,9 @@ detector.addEventListener("onImageResultsSuccess", function(faces, image, timest
   log('#results', "Timestamp: " + timestamp.toFixed(2));
   log('#results', "Number of faces found: " + faces.length);
   if (faces.length > 0) {
+    if (game_state === 'ready'){
+        drawReadyTimer(canvas, image);
+    }
     // Report desired metrics
     log('#results', "Appearance: " + JSON.stringify(faces[0].appearance));
     log('#results', "Emotions: " + JSON.stringify(faces[0].emotions, function(key, val) {
@@ -132,8 +138,16 @@ detector.addEventListener("onImageResultsSuccess", function(faces, image, timest
     drawFeaturePoints(canvas, image, faces[0]);
     drawEmoji(canvas, image, faces[0]);
 
-    // TODO: Call your function to run the game (define it first!)
-    // <your code here>
+    // Call function to run the game
+      if (game_state === 'running') {
+          timeLeft = timePerRound - (new Date().getTime() - timeStart);
+          if (timeLeft<0){
+              endGame();
+          }else{
+            drawGameTimer(canvas,image,timeLeft);
+          }
+          checkEmojiTarget(faces[0].emojis.dominantEmoji);
+      }
   }
 });
 
@@ -142,18 +156,24 @@ detector.addEventListener("onImageResultsSuccess", function(faces, image, timest
 
 // Draw the detected facial feature points on the image
 function drawFeaturePoints(canvas, img, face) {
+  //console.log(face);
   // Obtain a 2D context object to draw on the canvas
   var ctx = canvas.getContext('2d');
 
-  // TODO: Set the stroke and/or fill style you want for each feature point marker
+  // Set the stroke and/or fill style you want for each feature point marker
   // See: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D#Fill_and_stroke_styles
-  // <your code here>
-  
+  ctx.strokeStyle = '#00eaff';
+  ctx.fillStyle = 'black';
   // Loop over each feature point in the face
   for (var id in face.featurePoints) {
-    var featurePoint = face.featurePoints[id];
+      var featurePoint = face.featurePoints[id];
 
-    // TODO: Draw feature point, e.g. as a circle using ctx.arc()
+      ctx.beginPath();
+      ctx.arc(featurePoint.x,featurePoint.y,2,0,2*Math.PI);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(featurePoint.x,featurePoint.y,2,0,2*Math.PI);
+      ctx.stroke();
     // See: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/arc
     // <your code here>
   }
@@ -164,16 +184,107 @@ function drawEmoji(canvas, img, face) {
   // Obtain a 2D context object to draw on the canvas
   var ctx = canvas.getContext('2d');
 
-  // TODO: Set the font and style you want for the emoji
-  // <your code here>
-  
-  // TODO: Draw it using ctx.strokeText() or fillText()
+  var face_x_distance = face.featurePoints[4].x-face.featurePoints[0].x;
+  var face_y_distance = face.featurePoints[2].y-face.featurePoints[11].y;
+  // Set the font and style you want for the emoji
+  ctx.font = "normal " + face_y_distance/2 + "px arial";
+  ctx.textAlign = 'left';
+  // Draw it using ctx.strokeText() or fillText()
+  ctx.fillText(face.emojis.dominantEmoji,face.featurePoints[4].x+10,face.featurePoints[4].y);
+  var keys = Object.keys(face.emojis);
+  var img_y = img.height/(keys.length-1);
+  ctx.font = "normal 10px arial";
+  keys.map(function(key,i) {
+    if (keys !== 'dominantEmoji') {
+      // ctx.fillText(String.fromCharCode(emojis[i]), 0, i*20);
+      ctx.fillText(key, 0, i*20);
+      ctx.fillText(face.emojis[key].toFixed(2)+"%", 40, i*30);
+    }
+  });
   // See: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/fillText
-  // TIP: Pick a particular feature point as an anchor so that the emoji sticks to your face
-  // <your code here>
 }
 
-// TODO: Define any variables and functions to implement the Mimic Me! game mechanics
+// Define any variables and functions to implement the Mimic Me! game mechanics
+var targetEmoji;
+var timePerRound=60000; // ms
+var timeStart;
+var game_state;
+var ready_options=["Ready?",3,2,1,"GO!"];
+var ready_option = 0;
+var correct=0;
+var tries=0;
+
+function intialiseDetector(){
+  game_state = 'initialising';
+}
+
+function resetGame(){
+    correct=0;
+    tries=0;
+    game_state='ready';
+    ready_option=0;
+    setTimeout(changeReadyState,3000);
+}
+function startGame(){
+    game_state='running';
+    nextEmoji();
+    timeStart = new Date().getTime();
+}
+function endGame(){
+    game_state = 'stopped';
+}
+function changeReadyState(){
+  ready_option +=1;
+  if (ready_option<ready_options.length){
+      setTimeout(changeReadyState,1000);
+  }else{
+      startGame();
+  }
+}
+
+function drawCenterText(canvas, image, text){
+    // Obtain a 2D context object to draw on the canvas
+    var ctx = canvas.getContext('2d');
+    // Set the font and style
+    ctx.font = "normal 120px arial";
+    ctx.textAlign="center";
+    // Draw it using ctx.strokeText() or fillText()
+    ctx.fillText(text,image.width/2,image.height/2+30);
+}
+
+function drawReadyTimer(canvas, image){
+    drawCenterText(canvas,image,ready_options[ready_option]);
+}
+
+function drawGameTimer(canvas, image, timeLeft){
+    var ctx = canvas.getContext('2d');
+    // Set the font and style
+    ctx.font = "normal 30px arial";
+    // ctx.textAlign="left";
+    ctx.textAlign="right";
+    ctx.fillText((timeLeft/1000).toFixed(2),image.width-30,image.height-30);
+}
+
+function playRound(){
+
+}
+
+function nextEmoji(){
+  var ran = parseInt(Math.random()*emojis.length);
+  targetEmoji = emojis[ran];
+  setTargetEmoji(targetEmoji);
+}
+
+function checkEmojiTarget(emoji_expression){
+  if (toUnicode(emoji_expression) === targetEmoji){
+    correct+=1;
+    setScore(correct,correct+tries);
+    nextEmoji();
+  }else{
+    tries+=1;
+    setScore(correct,correct+tries+1);
+  }
+}
 
 // NOTE:
 // - Remember to call your update function from the "onImageResultsSuccess" event handler above
